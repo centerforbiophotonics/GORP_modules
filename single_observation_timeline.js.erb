@@ -72,6 +72,16 @@ function(observations, protocol, container, colorHash) {
     })
   }
 
+  function compare_by_label(a,b) {
+    if (a.label < b.label)
+      return -1;
+    if (a.label > b.label)
+      return 1;
+    return 0;
+  }
+
+  data.sort(compare_by_label);
+
   function resolveTickFormat() {
     return {
       format: d3.time.format("%I:%M:%S %p"),
@@ -113,6 +123,8 @@ function(observations, protocol, container, colorHash) {
     .mouseout(function(d, i, datum) {
       tip.hide();
     });
+
+  console.log(data);
 
   var svg = d3.select(container).append("svg")
     .attr("width", $(container).width()).datum(data)
