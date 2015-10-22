@@ -1,0 +1,122 @@
+function(observations, protocol, container, colorHash) {
+  if(!observations || !observations.length) return;
+
+  var sortedObservations = {}, data = [], minTime = null, maxTime = null, totalTime = null;
+
+  /* Make sure observation data is sorted.  Should be already, but make sure anyways */
+  observations.sort(intervalSort);
+
+  function intervalSort(a, b) {
+    if(a.timestamp_on < b.timestamp_on) return -1;
+    if(a.timestamp_on > b.timestamp_on) return 1;
+
+    if(!a.timestamp_off && !b.timestamp_off) return 0;
+    if(!a.timestamp_off) return 1;
+    if(!b.timestamp_off) return -1; 
+
+    var timeDiffA = a.timestamp_off - a.timestamp_on,
+      timeDiffB = b.timestamp_off - b.timestamp_on;
+
+    if(timeDiffA < timeDiffB) return -1;
+    if(timeDiffA > timeDiffB) return 1;
+
+    return 0;
+  }
+
+  minTime = observations[0].timestamp_on;
+  maxTime = null;
+
+  var maxLoc = observations.length - 1;
+  while(!maxTime) maxTime = observations[maxLoc--].timestamp_off;
+
+  /* Get total time in seconds */
+  totalTime = Math.ceil((maxTime - minTime) / 1000);
+
+  /* Seperate observation by key */
+  observations.forEach(function(observation) {
+    var key = observation.key;
+    
+    if(sortedObservations[key])
+      sortedObservations[key].push(observation);
+    else
+      sortedObservations[key] = [observation];
+  });
+
+  /* Change data format to format required by d3 timeline */
+  for(var key in sortedObservations) {
+    data.push({
+      label: key,
+      times: (function(observationData) {
+        var times = [];
+        observationData.forEach(function(obs) {
+          times.push((function(){
+            var instant = obs.timestamp_on === obs.timestamp_off;
+            var data = {
+              starting_time: obs.timestamp_on,
+              display: instant ? "circle" : "rect"
+            };
+
+            data.color = colorHash && colorHash[key] ? colorHash[key] : 'grey';
+
+            if(obs.value) data.value = obs.value;
+
+            if(!instant) data.ending_time = obs.timestamp_off ? obs.timestamp_off : maxTime;
+            else data.ending_time = data.starting_time;
+
+            return data;
+          })());
+        });
+
+        return times;
+      })(sortedObservations[key])
+    })
+  }
+
+  function resolveTickFormat() {
+    return {
+      format: d3.time.format("%I:%M:%S %p"),
+      tickInterval: Math.ceil((totalTime < 360 ? totalTime : (totalTime / 60)) / 6),
+      tickTime: totalTime < 360 ? d3.time.seconds : d3.time.minutes,
+      tickSize: 5
+    };
+  }
+
+  $("head").append(
+    "<style>"+
+      ".d3-tip {" +
+        "line-height: 1;" +
+        "font-weight: bold;" +
+        "padding: 12px;" +
+        "background: rgba(0, 0, 0, 0.8);" +
+        "color: #fff;" +
+        "border-radius: 2px;" +
+      "}" +
+    "</style>"
+  );
+
+  var tickFormat = resolveTickFormat(),
+    tip = d3.tip().attr('class', 'd3-tip').html(function(d){ 
+      return (d.value ? ("<span><strong>Value:</strong> " + d.value +"</span><br>") : '') + 
+        "<span>"+
+          new Date(d.starting_time).toLocaleTimeString() + (d.ending_time && (d.ending_time > d.starting_time) ? (" - " + 
+          new Date(d.ending_time).toLocaleTimeString()) : '') +
+        "</span>";
+    });
+
+  var chart = d3.timeline().stack()
+    .margin({left:120, right:30, top:15, bottom:0})
+    .tickFormat(tickFormat)
+    .itemMargin(10).showTimeAxisTick()
+    .mouseover(function(d, i, datum) {
+      tip.show(d);
+    })
+    .mouseout(function(d, i, datum) {
+      tip.hide();
+    });
+
+  var svg = d3.select(container).append("svg")
+    .attr("width", $(container).width()).datum(data)
+    .call(chart)
+    .call(tip)
+  ;
+}

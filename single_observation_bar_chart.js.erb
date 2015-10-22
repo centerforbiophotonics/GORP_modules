@@ -1,0 +1,210 @@
+function(observations, protocol, container, colorHash) {
+  /* if observations is not defined or is empty, do nothing */
+  if(!observations || !observations.length) return;
+
+  var minTime, maxTime, timeActive = {}, colors = [],
+    timeActiveArr = [], totalTime, timeInactive = 0, 
+    inactiveCount = 0, maxCount = 0, isInstant = (protocol.protocol_desc.button_behavior == "Instant");
+
+  /* Make sure observation data is sorted.  Should be already, but make sure anyways */
+  observations.sort(intervalSort);
+
+  /* Comparison function that sorts by timestamp_on, and then be interval length */
+  function intervalSort(a, b) {
+    if(a.timestamp_on < b.timestamp_on) return -1;
+    if(a.timestamp_on > b.timestamp_on) return 1;
+
+    if(!a.timestamp_off && !b.timestamp_off) return 0;
+    if(!a.timestamp_off) return 1;
+    if(!b.timestamp_off) return -1; 
+
+    var timeDiffA = a.timestamp_off - a.timestamp_on,
+      timeDiffB = b.timestamp_off - b.timestamp_on;
+
+    if(timeDiffA < timeDiffB) return -1;
+    if(timeDiffA > timeDiffB) return 1;
+
+    return 0;
+  }
+
+  /* Get min and max times so we know the total time of the observation */
+  minTime = observations[0].timestamp_on;
+  maxTime = null;
+
+  var maxLoc = observations.length - 1;
+  while(!maxTime) maxTime = observations[maxLoc--].timestamp_off;
+
+  /* Iterate through each observation and calculate all the wanted values */
+  var previous = null;
+  observations.forEach(function(observation) {
+    var endTime = (observation.timestamp_off ? observation.timestamp_off : maxTime),
+      timeDiff =  endTime - observation.timestamp_on;
+
+    /* Don't care about time no items were active if the button_behavior is instant or if its an instant observation*/
+    if(!isInstant && previous && observation.timestamp_on > previous.timestamp_off) {
+      timeInactive += (observation.timestamp_on - previous.timestamp_off);
+      inactiveCount++;
+    }
+
+    var key = observation.key;
+
+    if(timeActive[key]) {
+      /* Don't care about time if button_behavior is instant */
+      if(!isInstant) timeActive[key].value += timeDiff;
+      timeActive[key].count++;
+    } else {
+      timeActive[key] = {};
+      timeActive[key].count = 1;
+
+      /* Don't care about time if button_behavior is instant */
+      if(!isInstant) timeActive[key].value = timeDiff;
+    }
+    /* Update max count */
+    if(timeActive[key].count > maxCount) maxCount = timeActive[key].count;
+
+    previous = observation;
+    if(!previous.timestamp_off) previous.timestamp_off = endTime;
+  });
+
+  /* Change time to percentage */
+  totalTime = maxTime - minTime;
+  Object.keys(timeActive).map(function(key) {
+    timeActiveArr.push({
+      percent: timeActive[key].value * (100.0 / totalTime), 
+      label: key, 
+      value: timeActive[key].value,
+      count: timeActive[key].count
+    });
+    colors.push(colorHash && colorHash[key] ? colorHash[key] : 'grey');
+  });
+
+  /* Create object representing the inactive time in observation */
+  if(!isInstant) {
+    var timeInactiveData = {
+      label: "Time Inactive", 
+      value: timeInactive, 
+      percent: timeInactive * (100.0 / totalTime),
+      count: inactiveCount
+    };
+    colors.push('grey');
+  }
+
+  /* data is the data passed to the discrete bar chart */
+  var data = [{
+    key: "Percent Time Active",
+    values: timeActiveArr
+  }];
+
+  /* Place radio buttons to select data format if button_behavior is not instant */
+  if(!isInstant) {
+    $(container).html(
+      '<div style="height: 500px; width: 10%; display: inline-block">' +
+        '<h3>Select the data format you wish to see</h3>' +
+        '<input type="radio" name="format" value="percent-time-active">Percent of Total Time Active<br>' +
+        '<input type="radio" name="format" value="time-active">Total Time Active<br>' +
+        '<input type="radio" name="format" value="number-times-active">Number of Times Active<br>' +
+      '</div>'
+    );
+
+    $("[name=format][value=percent-time-active]").attr('checked', true);
+
+    reset_chart("percent-time-active", "Percent of Time Active");
+
+    $("[name=format]").click(function() {
+      var format = $(this).val(),
+        formatLabels = {
+          'percent-time-active': "Percent of Time Active",
+          'time-active': "Total Time Active (hh:mm:ss)",
+          'number-times-active': "Number of Times Active"
+        };
+
+      reset_chart(format, formatLabels[format]);
+    });
+  } else {
+    $(container).html(
+      '<div style="height: 500px; width: 10%; display: inline-block">' +
+        '<h3>Number of times each item was selected</h3>' +
+      '</div>'
+    );
+    reset_chart('number-times-active', 'Number of Times Active');
+  }
+
+  /* Creates svg and bar chart */
+  function reset_chart(format, yLabel) {
+    d3.select(container).select("#bar_chart_svg").remove();
+
+    /* Create chart */
+    var chart = nv.models.discreteBarChart()
+        .x(function(d) { 
+          return d.label;
+        })
+        .y(function(d) { 
+          if(format == "percent-time-active") return d.percent;
+          if(format == "time-active") return d.value;
+          if(format == "number-times-active") return d.count;
+        })
+        .staggerLabels(true)
+        .color(colors)
+        .margin({left: 100, bottom: 80, right: 80, left: 80});
+  
+    /* Reformat tooltip to show '%' if data type is a percent */
+    if(format == "percent-time-active")
+      chart.tooltip.contentGenerator(function(d) {
+        console.log(d);
+        return (
+          '<table>'+
+            '<tbody>' +
+              '<tr>' +
+                '<td class="legend-color-guide">' +
+                  '<div style="background-color: '+d.color+';"></div>' +
+                '</td>' +
+                '<td class="key">'+d.data.label+'</td>' +
+                '<td class="value">'+(Math.round(d.data.percent * 100) / 100)+'%</td>' +
+              '</tr>' +
+            '</tbody>' +
+          '</table>'
+        );
+      });
+
+    /* Adjust tick seperation to scale to the timeframe */
+    function setTimeFormat(d){
+      var timeInSeconds = Math.floor(d / 1000);
+      var hours = Math.floor(timeInSeconds / 3600);
+      var minutes = Math.floor((timeInSeconds % 3600) / 60);
+      var seconds = Math.floor(((timeInSeconds % 3600) % 60));
+      return (
+        (hours < 10 ? '0'+hours : hours)+':' +
+        (minutes < 10 ? '0'+minutes : minutes)+':' +
+        (seconds < 10 ? '0'+seconds : seconds)
+      ); 
+    }
+
+    if(format == "time-active")
+      chart.yAxis.tickFormat(setTimeFormat);
+
+    if(format == "number-times-active")
+      chart.yAxis.ticks(maxCount);
+
+    chart.yAxis.axisLabel(yLabel);
+    chart.xAxis.axisLabel("Code");
+
+    //Place chart on svg
+    var myData = [{key: null, values: []}];
+    if(!(isInstant || format === "number-times-active")) {
+      myData[0].key = data[0].key;
+      myData[0].values = data[0].values.concat([timeInactiveData]);
+    } else
+      myData = data;
+
+    d3.select(container).append("svg")
+        .attr("id", "bar_chart_svg")
+        .datum(myData)
+        .attr("height", 500)
+        .style("width", "90%")
+        .style("display", "inline-block")
+        .style("float", "right")
+        .call(chart);
+
+    nv.utils.windowResize(chart.update);
+  }
+}
