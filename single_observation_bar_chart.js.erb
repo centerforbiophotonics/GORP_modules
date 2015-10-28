@@ -1,3 +1,23 @@
+/* Parameter Description:
+observations: an array of objects containing the key, timestamp on and off, and value (if a note) for each observation.
+    example: [
+        {
+            key: "Student-SQ",
+            timestamp_off: 1440546366470,
+            timestamp_on: 1440546252057,
+            value: null
+        },
+        {
+             key: "Student-OG",
+             timestamp_off: 1440546366815,
+             timestamp_on: 1440546252599,
+             value: null
+        }
+    ]
+protocol: a json object describing the protocol.  This is useful if you are developing a visualizaton or analysis that is meant to apply generally to any observation protocol.
+container: a string representing the CSS selector for the container on the page where you should put your visualization or the result of your analysis.  Be a good neighbor and only append elements to this container and no others.
+colorHash: an object with a key for each unique code used in the protocol and the color used in the observation interface.  This is useful for making visualizations which use the same colors as the buttons in the interface.
+*/
 function(observations, protocol, container, colorHash) {
   /* if observations is not defined or is empty, do nothing */
   if(!observations || !observations.length) return;
@@ -150,7 +170,6 @@ function(observations, protocol, container, colorHash) {
     /* Reformat tooltip to show '%' if data type is a percent */
     if(format == "percent-time-active")
       chart.tooltip.contentGenerator(function(d) {
-        console.log(d);
         return (
           '<table>'+
             '<tbody>' +
